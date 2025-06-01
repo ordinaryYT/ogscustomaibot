@@ -1,4 +1,4 @@
-// Fortnite Custom Match Scheduler as a Command with Day Names
+// Fortnite Custom Match Scheduler + AI Ping Support
 require('dotenv').config();
 const { Client, GatewayIntentBits, SlashCommandBuilder, REST, Routes, ChannelType } = require('discord.js');
 const express = require('express');
@@ -75,7 +75,7 @@ client.on('interactionCreate', async interaction => {
     scheduledDate.setDate(now.getDate() + daysUntil);
 
     const [hour, minute] = time.split(':').map(Number);
-    scheduledDate.setUTCHours(hour - 1, minute, 0, 0); // UK time (BST is UTC+1)
+    scheduledDate.setUTCHours(hour - 1, minute, 0, 0); // UK time (BST = UTC+1)
 
     if (scheduledDate - now < 86400000) {
       return interaction.reply({ content: '❌ You must schedule at least 24 hours in advance.', ephemeral: true });
@@ -96,6 +96,30 @@ Please be ready in-game before the start time!` });
     });
 
     return interaction.reply({ content: `✅ Your match is scheduled for **${time} UK** on **${day.charAt(0).toUpperCase() + day.slice(1)}**.`, ephemeral: true });
+  }
+});
+
+client.on('messageCreate', async message => {
+  if (message.author.bot) return;
+  if (message.mentions.has(client.user)) {
+    const prompt = message.content.replace(/<@!?" + client.user.id + ">/, '').trim();
+    if (!prompt) return message.reply('❌ You must say something.');
+    try {
+      const res = await axios.post('https://openrouter.ai/api/v1/chat/completions', {
+        model: 'openai/gpt-3.5-turbo',
+        messages: [{ role: 'user', content: prompt }]
+      }, {
+        headers: {
+          Authorization: `Bearer ${OPENROUTER_API_KEY}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      const reply = res.data.choices[0]?.message?.content || '⚠️ No response.';
+      return message.reply(reply);
+    } catch (err) {
+      console.error('❌ AI Error:', err);
+      return message.reply('❌ Failed to contact AI.');
+    }
   }
 });
 
