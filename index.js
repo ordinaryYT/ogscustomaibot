@@ -1,94 +1,109 @@
+const express = require('express');
+const { Client, GatewayIntentBits } = require('discord.js');
+const fetch = require('node-fetch');
 require('dotenv').config();
-const {
-  Client,
-  GatewayIntentBits,
-  ChannelType,
-  Events,
-  ButtonBuilder,
-  ButtonStyle,
-  ActionRowBuilder,
-} = require('discord.js');
-const axios = require('axios');
+
+/////////////////////
+// Config & Setup
+/////////////////////
+
+const app = express();
+const PORT = process.env.API_PORT || 5000;
+
+const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
+const CHANNEL_ID = process.env.CHANNEL_ID;
+const SERVER_URL = `http://localhost:${PORT}`; // the API is hosted here
+
+// Server state simulation
+let isPaused = false;
+
+/////////////////////
+// Render Server API (hidden details)
+/////////////////////
+
+app.post('/restart', (req, res) => {
+  console.log('[API] Restart command received.');
+  // Your actual restart logic here
+  res.sendStatus(200);
+});
+
+app.post('/pause', (req, res) => {
+  console.log('[API] Pause command received.');
+  isPaused = true;
+  // Your actual pause logic here
+  res.sendStatus(200);
+});
+
+app.post('/resume', (req, res) => {
+  console.log('[API] Resume command received.');
+  isPaused = false;
+  // Your actual resume logic here
+  res.sendStatus(200);
+});
+
+app.listen(PORT, () => {
+  console.log(`[API] Control server listening on port ${PORT}`);
+});
+
+/////////////////////
+// Discord Bot Setup
+/////////////////////
 
 const client = new Client({
-  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages],
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.MessageContent,
+  ],
 });
 
-const TOKEN = process.env.DISCORD_BOT_TOKEN;
-const GUILD_ID = process.env.GUILD_ID;
-const CONTROL_CHANNEL_ID = process.env.CONTROL_CHANNEL_ID;
-
-const RENDER_API_KEY = process.env.RENDER_API_KEY;
-const RENDER_SERVICE_ID = process.env.RENDER_SERVICE_ID;
-
-const headers = {
-  Authorization: `Bearer ${RENDER_API_KEY}`,
-  'Content-Type': 'application/json',
-};
-
-// Build control buttons
-const buildControls = () => {
-  return new ActionRowBuilder().addComponents(
-    new ButtonBuilder()
-      .setCustomId('start')
-      .setLabel('Start')
-      .setStyle(ButtonStyle.Success),
-    new ButtonBuilder()
-      .setCustomId('stop')
-      .setLabel('Stop')
-      .setStyle(ButtonStyle.Danger),
-    new ButtonBuilder()
-      .setCustomId('restart')
-      .setLabel('Restart')
-      .setStyle(ButtonStyle.Primary)
-  );
-};
-
-// Post control panel on bot ready
-client.once('ready', async () => {
-  console.log(`✅ Logged in as ${client.user.tag}`);
-  const channel = await client.channels.fetch(CONTROL_CHANNEL_ID);
-  if (channel && channel.type === ChannelType.GuildText) {
-    await channel.send({
-      content: '**🤖 Bot Controller Panel**',
-      components: [buildControls()],
-    });
-  }
-});
-
-// Handle button interactions
-client.on(Events.InteractionCreate, async (interaction) => {
-  if (!interaction.isButton()) return;
-  await interaction.deferReply({ ephemeral: true });
-
-  const id = interaction.customId;
-  let method, url;
-
+async function sendServerCommand(command) {
   try {
-    if (id === 'start') {
-      method = 'POST';
-      url = `https://api.render.com/v1/services/${RENDER_SERVICE_ID}/resume`;
-    } else if (id === 'stop') {
-      method = 'PUT';
-      url = `https://api.render.com/v1/services/${RENDER_SERVICE_ID}/suspend`;
-    } else if (id === 'restart') {
-      method = 'POST';
-      url = `https://api.render.com/v1/services/${RENDER_SERVICE_ID}/restart`;
-    } else {
-      return interaction.editReply('⚠️ Unknown action.');
+    const res = await fetch(`${SERVER_URL}/${command}`, { method: 'POST' });
+    if (res.ok) return true;
+    else {
+      console.error(`[Bot] Server responded with status ${res.status} for command ${command}`);
+      return false;
     }
+  } catch (error) {
+    console.error(`[Bot] Error sending ${command} command:`, error);
+    return false;
+  }
+}
 
-    const response = await axios({ method, url, headers, data: null });
+client.once('ready', () => {
+  console.log(`[Bot] Logged in as ${client.user.tag}`);
+});
 
-    if (response.status >= 200 && response.status < 300) {
-      return interaction.editReply(`✅ Successfully executed **${id}** command.`);
-    } else {
-      return interaction.editReply('⚠️ Failed to execute the command.');
+client.on('messageCreate', async (message) => {
+  if (message.channel.id !== CHANNEL_ID) return; // only in specific channel
+  if (message.author.bot) return; // ignore bots
+
+  const content = message.content.toLowerCase();
+
+  if (content === '!overlay') {
+    try {
+      await message.channel.send({
+        content: 'Overlay activated.',
+        files: ['./overlay.png'], // Make sure this file exists
+      });
+    } catch (err) {
+      console.error('[Bot] Error sending overlay:', err);
+      message.reply('Failed to send image.');
     }
-  } catch (err) {
-    console.error('❌ Render API Error:', err?.response?.data || err.message);
-    return interaction.editReply('❌ Failed to contact bot server.');
+  } else if (content === '!restart') {
+    const success = await sendServerCommand('restart');
+    if (success) message.reply('Process restarted successfully.');
+    else message.reply('Failed to restart the process.');
+  } else if (content === '!pause') {
+    const success = await sendServerCommand('pause');
+    if (success) message.reply('Process paused.');
+    else message.reply('Failed to pause the process.');
+  } else if (content === '!resume') {
+    const success = await sendServerCommand('resume');
+    if (success) message.reply('Process resumed.');
+    else message.reply('Failed to resume the process.');
   }
 });
 
-client.login(TOKEN);
+client.login(DISCORD_TOKEN);
