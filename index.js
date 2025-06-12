@@ -1,49 +1,31 @@
-// Fortnite Custom Match Scheduler + AI Ping Support + Render Server Control Panel
+// Fortnite Custom Match Scheduler + AI Ping Support + Render Server Control
 require('dotenv').config();
-const {
-  Client,
-  GatewayIntentBits,
-  SlashCommandBuilder,
-  REST,
-  Routes,
-  ChannelType,
-  ActionRowBuilder,
-  ButtonBuilder,
-  ButtonStyle
-} = require('discord.js');
+const { Client, GatewayIntentBits, SlashCommandBuilder, REST, Routes, ChannelType, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const express = require('express');
 const axios = require('axios');
 const schedule = require('node-schedule');
 
-// Express keepalive server
 const app = express();
 app.get('/', (req, res) => res.send('Bot is running'));
 app.listen(process.env.PORT || 3000);
 
-// Bot client setup
 const client = new Client({
   intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent]
 });
 
-// Environment variables
 const DISCORD_BOT_TOKEN = process.env.DISCORD_BOT_TOKEN;
 const CLIENT_ID = process.env.CLIENT_ID;
 const GUILD_ID = process.env.GUILD_ID;
 const ANNOUNCE_CHANNEL_ID = process.env.ANNOUNCE_CHANNEL_ID;
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
+
 const RENDER_API_KEY = process.env.RENDER_API_KEY;
 const RENDER_SERVICE_ID = process.env.RENDER_SERVICE_ID;
 const RENDER_CONTROL_CHANNEL_ID = process.env.RENDER_CONTROL_CHANNEL_ID;
 
-const renderHeaders = {
-  Authorization: `Bearer ${RENDER_API_KEY}`,
-  Accept: 'application/json',
-  'Content-Type': 'application/json'
-};
-
 const rest = new REST({ version: '10' }).setToken(DISCORD_BOT_TOKEN);
 
-// Slash command registration
+// Fortnite /custommatch command
 const customCommand = new SlashCommandBuilder()
   .setName('createcustom')
   .setDescription('Schedule a Fortnite custom match')
@@ -54,13 +36,13 @@ const customCommand = new SlashCommandBuilder()
   .addStringOption(option =>
     option.setName('mode').setDescription('Game mode (e.g. Solos, Duos)').setRequired(true));
 
+// Register slash commands
 (async () => {
   await rest.put(Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID), {
     body: [customCommand.toJSON()]
   });
 })();
 
-// Mapping for day names
 const dayMap = {
   sunday: 0,
   monday: 1,
@@ -71,7 +53,6 @@ const dayMap = {
   saturday: 6
 };
 
-// Slash command interaction
 client.on('interactionCreate', async interaction => {
   if (interaction.isChatInputCommand()) {
     const { commandName } = interaction;
@@ -90,7 +71,7 @@ client.on('interactionCreate', async interaction => {
       }
 
       if (!(day in dayMap)) {
-        return interaction.reply({ content: `❌ Invalid day. Use full names like Monday, Tuesday, etc.`, ephemeral: true });
+        return interaction.reply({ content: `❌ Invalid day. Please use full day names like Monday, Tuesday, etc.`, ephemeral: true });
       }
 
       const now = new Date();
@@ -100,10 +81,10 @@ client.on('interactionCreate', async interaction => {
       scheduledDate.setDate(now.getDate() + daysUntil);
 
       const [hour, minute] = time.split(':').map(Number);
-      scheduledDate.setUTCHours(hour - 1, minute, 0, 0); // Adjust for UK time (UTC+1)
+      scheduledDate.setUTCHours(hour - 1, minute, 0, 0); // UK time (BST = UTC+1)
 
       if (scheduledDate - now < 86400000) {
-        return interaction.reply({ content: '❌ Must schedule at least 24 hours in advance.', ephemeral: true });
+        return interaction.reply({ content: '❌ You must schedule at least 24 hours in advance.', ephemeral: true });
       }
 
       const channel = await client.channels.fetch(ANNOUNCE_CHANNEL_ID);
@@ -111,7 +92,12 @@ client.on('interactionCreate', async interaction => {
       schedule.scheduleJob(scheduledDate, async () => {
         if (channel?.type === ChannelType.GuildText) {
           await channel.send({ content: 
-            `📢 **Scheduled Fortnite Custom Match!**\n👤 Host: <@${interaction.user.id}>\n🕒 Time: **${time} UK** on **${day.charAt(0).toUpperCase() + day.slice(1)}**\n🎮 Mode: **${mode}**\n\nPlease be ready in-game before the start time!` });
+            `📢 **Scheduled Fortnite Custom Match!**
+👤 Host: <@${interaction.user.id}>
+🕒 Time: **${time} UK** on **${day.charAt(0).toUpperCase() + day.slice(1)}**
+🎮 Mode: **${mode}**
+
+Please be ready in-game before the start time!` });
         }
       });
 
@@ -119,43 +105,79 @@ client.on('interactionCreate', async interaction => {
     }
   }
 
-  // Render button interactions
+  // Handle button interactions for Render server controls
   if (interaction.isButton()) {
-    const id = interaction.customId;
-    let url = '';
-    let method = 'PUT';
-
-    if (id === 'render_start') {
-      url = `https://api.render.com/v1/services/${RENDER_SERVICE_ID}/resume`;
-    } else if (id === 'render_stop') {
-      url = `https://api.render.com/v1/services/${RENDER_SERVICE_ID}/suspend`;
-    } else if (id === 'render_restart') {
-      url = `https://api.render.com/v1/services/${RENDER_SERVICE_ID}/deploys`;
-      method = 'POST';
-    } else {
-      return;
+    if (!interaction.channel || interaction.channel.id !== RENDER_CONTROL_CHANNEL_ID) {
+      return interaction.reply({ content: '❌ This button is not usable in this channel.', ephemeral: true });
     }
 
+    const action = interaction.customId; // 'start', 'stop', or 'restart'
+    const baseURL = 'https://api.render.com/v1';
+    const headers = {
+      Authorization: `Bearer ${RENDER_API_KEY}`,
+      Accept: 'application/json',
+    };
+
     try {
-      await axios({ method, url, headers: renderHeaders });
-      const successMsg = {
-        render_start: '✅ Service resumed successfully.',
-        render_stop: '🛑 Service suspended successfully.',
-        render_restart: '🔄 Restart (deployment) triggered successfully.'
-      };
-      await interaction.reply({ content: successMsg[id], ephemeral: true });
+      if (action === 'stop') {
+        await axios.put(`${baseURL}/services/${RENDER_SERVICE_ID}/suspend`, null, { headers });
+        await interaction.reply({ content: '🛑 Server stopped (suspended).', ephemeral: true });
+      } else if (action === 'start') {
+        await axios.put(`${baseURL}/services/${RENDER_SERVICE_ID}/resume`, null, { headers });
+        await interaction.reply({ content: '▶️ Server started (resumed).', ephemeral: true });
+      } else if (action === 'restart') {
+        await axios.post(`${baseURL}/services/${RENDER_SERVICE_ID}/restart`, null, { headers });
+        await interaction.reply({ content: '🔄 Server restarted.', ephemeral: true });
+      } else {
+        await interaction.reply({ content: '❌ Unknown action.', ephemeral: true });
+      }
     } catch (err) {
-      console.error('❌ Render API Error:', err.response?.data || err.message);
-      await interaction.reply({ content: '❌ Failed to process your request.', ephemeral: true });
+      console.error('❌ Render API Error:', err.response?.status, err.response?.data || err.message);
+      await interaction.reply({ content: '❌ Failed to process your request with Render API.', ephemeral: true });
     }
   }
 });
 
-// AI Mention Support
+// On ready, send control panel message with buttons to specified channel
+client.once('ready', async () => {
+  console.log(`✅ Logged in as ${client.user.tag}`);
+
+  try {
+    const channel = await client.channels.fetch(RENDER_CONTROL_CHANNEL_ID);
+    if (!channel || channel.type !== ChannelType.GuildText) {
+      console.error('❌ Render control channel not found or not a text channel.');
+      return;
+    }
+
+    // Create buttons
+    const row = new ActionRowBuilder()
+      .addComponents(
+        new ButtonBuilder()
+          .setCustomId('stop')
+          .setLabel('Stop')
+          .setStyle(ButtonStyle.Danger),
+        new ButtonBuilder()
+          .setCustomId('start')
+          .setLabel('Start')
+          .setStyle(ButtonStyle.Success),
+        new ButtonBuilder()
+          .setCustomId('restart')
+          .setLabel('Restart')
+          .setStyle(ButtonStyle.Primary),
+      );
+
+    // Send or fetch previous message? Here we just send a new one each time bot starts
+    await channel.send({ content: '🖥️ **Render Server Control Panel**', components: [row] });
+  } catch (error) {
+    console.error('❌ Failed to send Render control panel:', error);
+  }
+});
+
+// AI mention reply
 client.on('messageCreate', async message => {
   if (message.author.bot) return;
   if (message.mentions.has(client.user)) {
-    const prompt = message.content.replace(/<@!?\d+>/, '').trim();
+    const prompt = message.content.replace(new RegExp(`<@!?${client.user.id}>`), '').trim();
     if (!prompt) return message.reply('❌ You must say something.');
     try {
       const res = await axios.post('https://openrouter.ai/api/v1/chat/completions', {
@@ -176,32 +198,4 @@ client.on('messageCreate', async message => {
   }
 });
 
-// On ready
-client.once('ready', async () => {
-  console.log(`✅ Logged in as ${client.user.tag}`);
-  await sendRenderControlPanel();
-});
-
-// Function to send Render control panel buttons
-async function sendRenderControlPanel() {
-  const channel = await client.channels.fetch(RENDER_CONTROL_CHANNEL_ID);
-  if (!channel || channel.type !== ChannelType.GuildText) {
-    console.error('❌ Invalid control channel');
-    return;
-  }
-
-  const row = new ActionRowBuilder()
-    .addComponents(
-      new ButtonBuilder().setCustomId('render_start').setLabel('Start').setStyle(ButtonStyle.Success),
-      new ButtonBuilder().setCustomId('render_stop').setLabel('Stop').setStyle(ButtonStyle.Danger),
-      new ButtonBuilder().setCustomId('render_restart').setLabel('Restart').setStyle(ButtonStyle.Primary)
-    );
-
-  await channel.send({
-    content: '🖥️ **Server Control Panel**',
-    components: [row]
-  });
-}
-
-// Login
 client.login(DISCORD_BOT_TOKEN);
