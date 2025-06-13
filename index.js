@@ -25,7 +25,7 @@ client.once(Events.ClientReady, async () => {
     const row = new ActionRowBuilder().addComponents(button);
 
     await channel.send({
-      content: 'Click the button below to restart the service:',
+      content: 'Click the button below to restart the bots:',
       components: [row]
     });
 
