@@ -1,18 +1,22 @@
 {
-  "name": "discord-control-bot",
+  "name": "my-render-restart-app",
   "version": "1.0.0",
-  "description": "Discord bot with command center overlay that controls external server",
-  "main": "index.js",
+  "description": "App to trigger Render deploy hook and Discord restart button",
+  "main": "server.js",
   "scripts": {
-    "preinstall": "node -v && npm -v",
-    "start": "node index.js"
-  },
-  "engines": {
-    "node": "22.x"
+    "start": "node server.js",
+    "bot": "node bot.js"
   },
   "dependencies": {
-    "discord.js": "^14.13.0",
+    "axios": "^0.21.1",
+    "discord.js": "^14.11.0",
     "dotenv": "^16.3.1",
-    "node-fetch": "^3.3.2"
-  }
+    "express": "^4.17.1"
+  },
+  "engines": {
+    "node": "14.x"
+  },
+  "devDependencies": {},
+  "author": "",
+  "license": "ISC"
 }
