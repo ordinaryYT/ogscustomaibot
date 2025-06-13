@@ -1,5 +1,5 @@
 const { Client, GatewayIntentBits, ActionRowBuilder, ButtonBuilder, ButtonStyle, Events } = require('discord.js');
-const fetch = require('node-fetch');
+const fetch = (...args) => import('node-fetch').then(({ default: fetch }) => fetch(...args));
 require('dotenv').config();
 
 /////////////////////
@@ -8,9 +8,7 @@ require('dotenv').config();
 
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
 const CHANNEL_ID = process.env.CHANNEL_ID;
-
-// Use your external API URL here:
-const SERVER_URL = 'https://ogscustomaibot.onrender.com';
+const SERVER_URL = 'https://ogscustomaibot.onrender.com'; // Your external API
 
 /////////////////////
 // Discord Bot Setup
@@ -34,13 +32,12 @@ async function sendServerCommand(command) {
   }
 }
 
-async function createOrUpdateControlPanel(channel) {
-  // Try to find existing bot message with control panel
+async function createOrUpdateBotControls(channel) {
   const messages = await channel.messages.fetch({ limit: 20 });
   const existing = messages.find(
     (msg) =>
       msg.author.id === client.user.id &&
-      msg.content === '🛠️ **Command Center Overlay**'
+      msg.content === '🤖 **Bot Controls**'
   );
 
   const row = new ActionRowBuilder().addComponents(
@@ -59,11 +56,11 @@ async function createOrUpdateControlPanel(channel) {
   );
 
   if (existing) {
-    await existing.edit({ content: '🛠️ **Command Center Overlay**', components: [row] });
+    await existing.edit({ content: '🤖 **Bot Controls**', components: [row] });
     return existing;
   } else {
     return await channel.send({
-      content: '🛠️ **Command Center Overlay**',
+      content: '🤖 **Bot Controls**',
       components: [row],
     });
   }
@@ -77,7 +74,8 @@ client.once('ready', async () => {
     console.error('[Bot] Could not find the specified channel.');
     return;
   }
-  await createOrUpdateControlPanel(channel);
+
+  await createOrUpdateBotControls(channel);
 });
 
 client.on(Events.InteractionCreate, async (interaction) => {
@@ -86,25 +84,19 @@ client.on(Events.InteractionCreate, async (interaction) => {
   if (interaction.channelId !== CHANNEL_ID) {
     return interaction.reply({
       content: 'This control panel only works in the designated channel.',
-      ephemeral: true,
+      ephemeral: true
     });
   }
 
-  const command = interaction.customId; // 'restart', 'pause', or 'resume'
-
+  const command = interaction.customId; // 'restart', 'pause', 'resume'
   const success = await sendServerCommand(command);
 
-  if (success) {
-    await interaction.reply({
-      content: `Process ${command}ed successfully.`,
-      ephemeral: true,
-    });
-  } else {
-    await interaction.reply({
-      content: `Failed to ${command} the process.`,
-      ephemeral: true,
-    });
-  }
+  await interaction.reply({
+    content: success
+      ? `✅ Successfully sent \`${command}\` command.`
+      : `❌ Failed to send \`${command}\` command.`,
+    ephemeral: true
+  });
 });
 
 client.login(DISCORD_TOKEN);
