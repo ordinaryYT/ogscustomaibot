@@ -1,13 +1,14 @@
 {
   "name": "discord-control-bot",
   "version": "1.0.0",
-  "description": "Discord bot command center overlay controlling external API",
+  "description": "Discord bot with command center overlay that controls external server",
   "main": "index.js",
   "scripts": {
+    "preinstall": "node -v && npm -v",
     "start": "node index.js"
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": "22.x"
   },
   "dependencies": {
     "discord.js": "^14.13.0",
