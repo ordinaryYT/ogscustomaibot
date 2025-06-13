@@ -1,33 +1,33 @@
-const { Client, GatewayIntentBits, ActionRowBuilder, ButtonBuilder, ButtonStyle, Events } = require('discord.js');
-const fetch = (...args) => import('node-fetch').then(({ default: fetch }) => fetch(...args));
-require('dotenv').config();
+const {
+  Client,
+  GatewayIntentBits,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+  Events
+} = require('discord.js');
 
-/////////////////////
-// Config & Setup
-/////////////////////
+const fetch = (...args) =>
+  import('node-fetch').then(({ default: fetch }) => fetch(...args));
+
+require('dotenv').config();
 
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
 const CHANNEL_ID = process.env.CHANNEL_ID;
-const SERVER_URL = 'https://ogscustomaibot.onrender.com'; // Your external API
-
-/////////////////////
-// Discord Bot Setup
-/////////////////////
+const SERVER_URL = 'https://ogscustomaibot.onrender.com'; // External server URL
 
 const client = new Client({
-  intents: [
-    GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent,
-  ],
+  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages]
 });
 
 async function sendServerCommand(command) {
   try {
-    const res = await fetch(`${SERVER_URL}/${command}`, { method: 'POST' });
-    return res.ok;
+    const response = await fetch(`${SERVER_URL}/${command}`, {
+      method: 'POST'
+    });
+    return response.ok;
   } catch (error) {
-    console.error(`[Bot] Error sending ${command} command:`, error);
+    console.error(`[Bot] API request error for '${command}':`, error.message);
     return false;
   }
 }
@@ -57,46 +57,52 @@ async function createOrUpdateBotControls(channel) {
 
   if (existing) {
     await existing.edit({ content: '🤖 **Bot Controls**', components: [row] });
-    return existing;
   } else {
-    return await channel.send({
+    await channel.send({
       content: '🤖 **Bot Controls**',
-      components: [row],
+      components: [row]
     });
   }
 }
 
 client.once('ready', async () => {
   console.log(`[Bot] Logged in as ${client.user.tag}`);
-
-  const channel = await client.channels.fetch(CHANNEL_ID);
-  if (!channel) {
-    console.error('[Bot] Could not find the specified channel.');
-    return;
+  try {
+    const channel = await client.channels.fetch(CHANNEL_ID);
+    if (!channel) {
+      console.error('[Bot] Could not find the specified channel.');
+      return;
+    }
+    await createOrUpdateBotControls(channel);
+  } catch (err) {
+    console.error('[Bot] Error during startup:', err.message);
   }
-
-  await createOrUpdateBotControls(channel);
 });
 
 client.on(Events.InteractionCreate, async (interaction) => {
   if (!interaction.isButton()) return;
+  if (interaction.channelId !== CHANNEL_ID) return;
 
-  if (interaction.channelId !== CHANNEL_ID) {
-    return interaction.reply({
-      content: 'This control panel only works in the designated channel.',
-      ephemeral: true
+  const command = interaction.customId;
+
+  try {
+    await interaction.deferReply({ ephemeral: true });
+
+    const success = await sendServerCommand(command);
+
+    await interaction.editReply({
+      content: success
+        ? `✅ Command \`${command}\` executed successfully.`
+        : `❌ Failed to execute \`${command}\`.`
     });
+  } catch (error) {
+    console.error(`[Bot] Failed to process interaction:`, error.message);
+    if (!interaction.replied) {
+      await interaction.editReply({
+        content: `❌ An unexpected error occurred while handling your request.`
+      });
+    }
   }
-
-  const command = interaction.customId; // 'restart', 'pause', 'resume'
-  const success = await sendServerCommand(command);
-
-  await interaction.reply({
-    content: success
-      ? `✅ Successfully sent \`${command}\` command.`
-      : `❌ Failed to send \`${command}\` command.`,
-    ephemeral: true
-  });
 });
 
 client.login(DISCORD_TOKEN);
